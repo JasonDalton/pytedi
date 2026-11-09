@@ -125,4 +125,6 @@ def merge_candidates(nhd_waterbodies: gpd.GeoDataFrame, s2_ponds: gpd.GeoDataFra
 
     if candidates.empty:
         return _empty_candidates()
+    candidates["nid_storage_ML"] = pd.to_numeric(candidates["nid_storage_ML"], errors="coerce").astype("float64")
+    candidates["area_from_default"] = candidates["area_from_default"].astype(bool)
     return candidates[["geometry", *CANDIDATE_COLUMNS]].reset_index(drop=True)

@@ -82,3 +82,10 @@ def test_one_sentinel2_polygon_touching_two_nhd_ponds_marks_both():
     s2 = gpd.GeoDataFrame({"surfacearea_m2": [3000.0]}, geometry=[box(30, 10, 80, 40)], crs=CRS)
     c = merge_candidates(nhd, s2, gpd.GeoDataFrame(geometry=[], crs=CRS))
     assert list(c["source"]) == ["both", "both"]
+
+
+def test_numeric_columns_stay_numeric(nhd, s2, nid):
+    c = merge_candidates(nhd, s2, nid)
+    assert c["nid_storage_ML"].dtype == "float64" and c["surfacearea_m2"].dtype == "float64"
+    assert c.loc[c["nid_id"] == "VA1", "nid_storage_ML"].iloc[0] == 60.0
+    assert c["area_from_default"].dtype == bool

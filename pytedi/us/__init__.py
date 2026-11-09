@@ -16,6 +16,7 @@ The pytedi core never imports it.
 
 try:
     from .aoi import AOI, as_aoi, huc12_at, huc_geometry
+    from .fetch import NHDData, cache_dir, fetch_3dep, fetch_nhd, fetch_official_dams, nid_inventory_path
     from .volume import volume_ml_from_area
 except ImportError as exc:  # pragma: no cover - exercised only without the extra
     raise ImportError(
@@ -28,4 +29,10 @@ __all__ = [
     "huc12_at",
     "huc_geometry",
     "volume_ml_from_area",
+    "NHDData",
+    "cache_dir",
+    "fetch_3dep",
+    "fetch_nhd",
+    "fetch_official_dams",
+    "nid_inventory_path",
 ]

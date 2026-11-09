@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 import urllib.request
 import warnings
 from dataclasses import dataclass
@@ -31,6 +32,8 @@ NID_GPKG_URL = "https://nid.sec.usace.army.mil/api/nation/gpkg"
 NHD_DATASETS = ("nhd_hr", "3dhp")
 NHD_POND_FTYPES = (390, 436)  # NHD FType 390 LakePond, 436 Reservoir (466 SwampMarsh is left out)
 HP3D_POND_TYPES = ("Lake", "Reservoir", "Pond", "LakePond")
+RETRIES = 3
+RETRY_WAIT_S = 10
 
 ACRE_FT_TO_ML = 1.2334818375
 ACRE_TO_M2 = 4046.8564224
@@ -142,6 +145,18 @@ def _nhdplus_hr_catchments(aoi: AOI) -> gpd.GeoDataFrame:
     return pynhd.NHDPlusHR("catchment").bygeom(aoi.bounds, geo_crs=WGS84)
 
 
+def _layer_with_retries(dataset: str, layer: str, aoi: AOI) -> gpd.GeoDataFrame:
+    """One NHD layer, tried up to RETRIES times: the USGS services time out now and then."""
+    for attempt in range(1, RETRIES + 1):
+        try:
+            return _nhd_layer(dataset, layer, aoi)
+        except Exception as exc:
+            if attempt == RETRIES:
+                hint = ' Try dataset="3dhp", or run again later.' if dataset == "nhd_hr" else " Run again later."
+                raise RuntimeError(f"The {dataset} {layer} service failed {RETRIES} times ({exc!s:.200}).{hint}") from exc
+            time.sleep(RETRY_WAIT_S * attempt)
+
+
 def _tidy(gdf: gpd.GeoDataFrame, aoi_5070: AOI) -> gpd.GeoDataFrame:
     """Lower-case column names, EPSG:5070, and only features that touch the AOI."""
     gdf = gdf.rename(columns={c: c.lower() for c in gdf.columns if c != "geometry"})
@@ -177,18 +192,23 @@ def fetch_nhd(aoi, dataset: str = "nhd_hr", include_catchments: bool = False,
     aoi_5070 = aoi.to_crs(EQUAL_AREA)
     _use_cache(cache_dir(cache))
 
-    flowlines = _tidy(_nhd_layer(dataset, "flowline", aoi), aoi_5070)
+    flowlines = _tidy(_layer_with_retries(dataset, "flowline", aoi), aoi_5070)
     flowlines = flowlines.set_geometry(flowlines.geometry.intersection(aoi_5070.geometry))
     flowlines = flowlines[~flowlines.geometry.is_empty].reset_index(drop=True)
 
-    waterbodies = _tidy(_nhd_layer(dataset, "waterbody", aoi), aoi_5070)
+    waterbodies = _tidy(_layer_with_retries(dataset, "waterbody", aoi), aoi_5070)
     if dataset == "nhd_hr" and "ftype" in waterbodies:
         waterbodies = waterbodies[waterbodies["ftype"].astype(int).isin(NHD_POND_FTYPES)]
     elif dataset == "3dhp" and "featuretypelabel" in waterbodies:
         waterbodies = waterbodies[waterbodies["featuretypelabel"].isin(HP3D_POND_TYPES)]
     waterbodies = waterbodies.reset_index(drop=True)
 
-    rivers = _tidy(_nhd_layer(dataset, "area", aoi), aoi_5070)
+    try:  # only used to tell rivers from ponds, so a failure is not fatal
+        rivers = _tidy(_nhd_layer(dataset, "area", aoi), aoi_5070)
+    except Exception as exc:
+        warnings.warn(f"NHD river polygons are unavailable ({type(exc).__name__}); Sentinel-2 detections on wide "
+                      "rivers will not be filtered out.", UserWarning, stacklevel=2)
+        rivers = gpd.GeoDataFrame(geometry=[], crs=EQUAL_AREA)
 
     catchments = None
     if include_catchments:

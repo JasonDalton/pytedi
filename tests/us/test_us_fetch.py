@@ -121,3 +121,33 @@ def test_cache_dir_honors_the_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("PYTEDI_US_CACHE", str(tmp_path / "c"))
     assert fetch.cache_dir() == tmp_path / "c" and (tmp_path / "c").is_dir()
     assert fetch.cache_dir(tmp_path / "d") == tmp_path / "d"
+
+
+def test_fetch_nhd_carries_on_without_river_polygons(monkeypatch):
+    def flaky(dataset, layer, aoi):
+        if layer == "area":
+            raise RuntimeError("504 Gateway Timeout")
+        return fake_layers(dataset, layer, aoi)
+
+    monkeypatch.setattr(fetch, "_nhd_layer", flaky)
+    with pytest.warns(UserWarning, match="river polygons"):
+        nhd = fetch.fetch_nhd(AOI)
+    assert nhd.rivers.empty and nhd.rivers.crs.to_epsg() == 5070 and len(nhd.waterbodies) == 2
+
+
+def test_fetch_nhd_retries_then_explains(monkeypatch):
+    attempts = []
+
+    def once_flaky(dataset, layer, aoi):
+        attempts.append(layer)
+        if attempts.count(layer) == 1:
+            raise RuntimeError("504 Gateway Timeout")
+        return fake_layers(dataset, layer, aoi)
+
+    monkeypatch.setattr(fetch, "_nhd_layer", once_flaky)
+    monkeypatch.setattr(fetch, "RETRY_WAIT_S", 0)
+    assert len(fetch.fetch_nhd(AOI).waterbodies) == 2
+
+    monkeypatch.setattr(fetch, "_nhd_layer", lambda *a: (_ for _ in ()).throw(RuntimeError("504")))
+    with pytest.raises(RuntimeError, match="3dhp"):
+        fetch.fetch_nhd(AOI)

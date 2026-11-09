@@ -17,6 +17,7 @@ The pytedi core never imports it.
 try:
     from .aoi import AOI, as_aoi, huc12_at, huc_geometry
     from .fetch import NHDData, cache_dir, fetch_3dep, fetch_nhd, fetch_official_dams, nid_inventory_path
+    from .hydro import FlowGrids, flow_grids, link_ponds
     from .ponds import detect_ponds_sentinel2, ndwi
     from .volume import volume_ml_from_area
 except ImportError as exc:  # pragma: no cover - exercised only without the extra
@@ -38,4 +39,7 @@ __all__ = [
     "nid_inventory_path",
     "detect_ponds_sentinel2",
     "ndwi",
+    "FlowGrids",
+    "flow_grids",
+    "link_ponds",
 ]

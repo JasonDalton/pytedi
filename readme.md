@@ -95,6 +95,24 @@ Please refer to the [user manual](UserManual.md) for examples of how to:
 - integrate results into eWater Source
 - run a model with historical scaling
 
+## US data (optional)
+
+The optional `pytedi.us` subpackage builds a dam list for any area in the United States from public data: USGS 3DEP terrain, USGS National Hydrography Dataset (NHD) ponds and streams, the USACE National Inventory of Dams, and farm ponds detected in Sentinel-2 imagery. It is not needed for the core model and is installed separately:
+
+```
+pip install "pytedi[us]"
+```
+
+```python
+from pytedi.us import build_damlist, huc12_at
+
+result = build_damlist(huc12_at(37.09, -79.30))   # the HUC12 watershed around Hurt, Virginia
+model = result.to_model()                          # a tedimodel with the dam list and catchment area
+result.damlist.head()
+```
+
+See [`examples/us_hurt_va`](examples/us_hurt_va/README.md) for a full example, the method, and its limits.
+
 ## Licence
 
 This project is licensed under the MIT License - see the [LICENCE](LICENCE) file for details.

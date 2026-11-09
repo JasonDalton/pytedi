@@ -16,3 +16,9 @@ dist/
 *.egg-info/
 __pycache__/
 *.py[cod]
+
+# pytedi.us: virtual environment, download caches and example outputs
+.venv/
+.pytedi_cache/
+cache/
+examples/us_hurt_va/output/

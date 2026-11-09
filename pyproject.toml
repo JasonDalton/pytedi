@@ -22,9 +22,33 @@ dependencies = [
     "numba",
 ]
 
+[project.optional-dependencies]
+# US data helpers (pytedi.us): 3DEP terrain, NHD hydrography, the National Inventory of Dams
+# and Sentinel-2 pond detection. Install with: pip install "pytedi[us]"
+us = [
+    "geopandas>=1.0",
+    "shapely>=2.0",
+    "rasterio>=1.3",
+    "rioxarray>=0.15",
+    "xarray",
+    "py3dep>=0.17",
+    "pynhd>=0.17",
+    "pygeohydro>=0.17",
+    "pystac-client>=0.8",
+    "odc-stac>=0.3.10",
+    "pysheds>=0.4",
+    "matplotlib",
+]
+
 [project.urls]
 Homepage = "https://github.com/AlluviumGroup/pytedi"
 
 [tool.setuptools.packages.find]
 include = ["pytedi*"]
 exclude = ["pytedi_planning*", "pytedi_testing*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "network: needs internet access to live US data services (deselected by default; run with -m network)",
+]
+addopts = "-m 'not network'"

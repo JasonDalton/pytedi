@@ -5,7 +5,10 @@ Method
 1. Find Sentinel-2 Level-2A scenes over the AOI in Element 84's Earth Search STAC catalog
    (public, no credentials), with scene cloud cover under ``max_cloud`` percent.
 2. Convert digital numbers to surface reflectance with each scene's own scale and offset
-   (scenes from processing baseline 04.00 on carry a -0.1 offset).
+   (:func:`scene_calibration`). Scenes from processing baseline 04.00 on carry a -0.1
+   offset, but Earth Search v1 has already removed it from the pixels when the item says
+   ``earthsearch:boa_offset_applied``; applying it again pushes dark surfaces such as
+   roads below zero, where NDWI turns positive.
 3. Mask clouds, cloud shadows, cirrus, saturated and missing pixels with the scene
    classification layer (SCL), then take the per-pixel median over the remaining dates.
    The median removes passing clouds, shadows and short-lived flooding.
@@ -65,6 +68,14 @@ def to_reflectance(dn, scale: float, offset: float):
     return out
 
 
+def scene_calibration(properties: dict, raster_bands) -> tuple[float, float]:
+    """(scale, offset) to turn one Earth Search band's DN into reflectance."""
+    info = (raster_bands or [{}])[0]
+    scale = float(info.get("scale", 0.0001))
+    offset = 0.0 if properties.get("earthsearch:boa_offset_applied") else float(info.get("offset", 0.0))
+    return scale, offset
+
+
 def masked_median(values, scl):
     """Per-pixel median over time (axis 0), ignoring dates whose SCL marks the pixel invalid."""
     values = np.where(np.isin(scl, SCL_INVALID), np.nan, values)
@@ -104,8 +115,7 @@ def _load_scenes(aoi: AOI, date_range, max_cloud: float):
     for item in items:
         day = item.datetime.date()
         for band in ("green", "nir"):
-            info = (item.assets[band].extra_fields.get("raster:bands") or [{}])[0]
-            pair = (float(info.get("scale", 0.0001)), float(info.get("offset", 0.0)))
+            pair = scene_calibration(item.properties, item.assets[band].extra_fields.get("raster:bands"))
             if calibration[day].setdefault(band, pair) != pair:
                 raise ValueError(f"Scenes from {day} disagree on the {band} scale/offset; load them separately.")
     ds = odc.stac.load(items, bands=["green", "nir", "scl"], bbox=aoi.bounds, crs=EQUAL_AREA, resolution=10,

@@ -115,3 +115,12 @@ def test_ponds_outside_the_aoi_polygon_are_dropped(monkeypatch):
     monkeypatch.setattr(ponds, "_load_scenes", lambda *a: synthetic_scenes())
     corner = AOI(box(1_000_000, 1_599_900, 1_000_050, 1_600_000), "EPSG:5070")  # far from the pond
     assert ponds.detect_ponds_sentinel2(corner).empty
+
+
+def test_calibration_skips_an_offset_earth_search_already_applied():
+    band = [{"scale": 0.0001, "offset": -0.1}]
+    # Earth Search v1 removes the baseline-04.00 offset from the pixels but keeps it in the metadata.
+    assert ponds.scene_calibration({"earthsearch:boa_offset_applied": True}, band) == (0.0001, 0.0)
+    assert ponds.scene_calibration({"earthsearch:boa_offset_applied": False}, band) == (0.0001, -0.1)
+    assert ponds.scene_calibration({}, band) == (0.0001, -0.1)
+    assert ponds.scene_calibration({}, None) == (0.0001, 0.0)

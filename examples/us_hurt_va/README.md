@@ -15,7 +15,7 @@ Outputs go to `examples/us_hurt_va/output/` (git-ignored):
 |------|----------|
 | `hurt_va_damlist.csv` | the dam list, in the columns of `tedimodel().damlist` |
 | `hurt_va_candidates.gpkg` | layers `candidates` (pond polygons with all attributes), `outlets`, `nid_dams`, `flowlines`, `aoi` |
-| `hurt_va_map.png` | hillshade, flowlines, ponds by source, pond-to-pond links, NID dams |
+| `hurt_va_map.png` | ponds colored by what found them (a dot marks each), flowlines, pond-to-pond links and NID dams over the USGS US Topo basemap (roads, places, creeks, contours; from The National Map, no key needed). Offline, or with `plot_candidates(..., basemap=None)`, a hillshade of the DEM is drawn instead; any `xyzservices` provider can be passed. |
 | `cache/` | downloads, reused on later runs (the two NAIP mosaics are about 1 GB) |
 
 ## Method

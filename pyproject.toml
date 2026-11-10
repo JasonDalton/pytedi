@@ -39,6 +39,7 @@ us = [
     "odc-stac>=0.3.10",
     "pysheds>=0.4",
     "matplotlib",
+    "contextily>=1.6",
 ]
 
 [project.urls]

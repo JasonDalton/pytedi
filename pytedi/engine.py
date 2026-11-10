@@ -822,7 +822,10 @@ def damlist_preprocessing(damlist_df, demands_df, cat_area, scale_limit):
     # Every dam must connect to a valid dam or the outlet.
     known_dam_ids = damlist_df['dam_id']
 
-    unknown_downstream = (~outlet_link & ~damlist_df['ds_damid'].isin(known_dam_ids))
+    # Compare as Python objects: with pyarrow-backed columns, isin between an integer column
+    # and string ids raises instead of returning False. Object comparison keeps the same
+    # meaning as before (the integer 2 still does not match the text "2").
+    unknown_downstream = (~outlet_link & ~damlist_df['ds_damid'].astype(object).isin(known_dam_ids.astype(object)))
 
     if unknown_downstream.any():
         unknown_ids = damlist_df.loc[unknown_downstream, 'ds_damid'].unique()

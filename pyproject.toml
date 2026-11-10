@@ -34,6 +34,7 @@ us = [
     "py3dep>=0.17",
     "pynhd>=0.17",
     "pygeohydro>=0.17",
+    "pygridmet>=0.17",
     "pystac-client>=0.8",
     "planetary-computer>=1.0",
     "odc-stac>=0.3.10",

@@ -6,6 +6,7 @@ cell at (row r, column c) joins the channel at row r + |c - 10|. That gives an i
 count of each channel cell's upstream area (away from the bottom edge).
 """
 import geopandas as gpd
+import pandas as pd
 import numpy as np
 import pytest
 import xarray as xr
@@ -126,3 +127,23 @@ def test_d8_accumulation_by_hand():
     assert acc.tolist() == [[1, 1, 0],
                             [1, 3, 1],
                             [1, 8, 1]]
+
+
+def test_fixed_outlet_is_snapped_to_the_channel_and_relinks_ponds(ponds):
+    # A dam point 8 m off the channel at row 15: snapped within 20 m to the highest-accumulation cell.
+    new = gpd.GeoDataFrame({"dam_id": ["N"]}, geometry=[cells(14, 16, 9, 11)], crs="EPSG:5070")
+    allp = gpd.GeoDataFrame(pd.concat([ponds, new], ignore_index=True), crs="EPSG:5070")
+    x, y = X0 + 10 * CELL + 5 - 8, Y0 - 15 * CELL - 5
+    links = hydro.link_ponds(allp, hydro.flow_grids(valley_dem()), fixed_outlets={"N": (x, y)}, snap_m=20).set_index("dam_id")
+    ox, oy = links.loc["N", ["outlet_x", "outlet_y"]]
+    assert ox == pytest.approx(X0 + 10 * CELL + 5)  # on the channel (column 10)
+    assert np.hypot(ox - x, oy - y) <= 20 + CELL
+    # A now drains into N, N into B; C still joins below N and drains into B.
+    assert links.loc["A", "ds_damid"] == "N" and links.loc["N", "ds_damid"] == "B"
+    assert links.loc["C", "ds_damid"] == "B"
+    assert links.loc["N", "catchuplocal_km2"] == pytest.approx(links.loc["N", "catchuptotal_km2"] - links.loc["A", "catchuptotal_km2"])
+
+
+def test_fixed_outlet_must_name_a_pond(ponds):
+    with pytest.raises(ValueError, match="Z"):
+        hydro.link_ponds(ponds, hydro.flow_grids(valley_dem()), fixed_outlets={"Z": (X0, Y0)})

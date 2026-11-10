@@ -136,7 +136,25 @@ def _label_ponds(ponds: gpd.GeoDataFrame, grids: FlowGrids) -> np.ndarray:
                               fill=0, all_touched=True, dtype="int32")
 
 
-def link_ponds(ponds: gpd.GeoDataFrame, grids: FlowGrids) -> pd.DataFrame:
+def _snap(grids: FlowGrids, x: float, y: float, snap_m: float) -> tuple[int, int]:
+    """Row and column of the highest-accumulation valid cell within ``snap_m`` of (x, y)."""
+    col_f, row_f = ~grids.transform @ (x, y)
+    rows, cols = grids.fdir.shape
+    reach = int(np.ceil(snap_m / abs(grids.transform.a))) + 1
+    r0, c0 = int(np.floor(row_f)), int(np.floor(col_f))
+    best, best_acc = None, -1.0
+    for r in range(max(0, r0 - reach), min(rows, r0 + reach + 1)):
+        for c in range(max(0, c0 - reach), min(cols, c0 + reach + 1)):
+            cx, cy = grids.transform @ (c + 0.5, r + 0.5)
+            if grids.valid[r, c] and np.hypot(cx - x, cy - y) <= snap_m and grids.acc[r, c] > best_acc:
+                best, best_acc = (r, c), grids.acc[r, c]
+    if best is None:
+        raise ValueError(f"No DEM cell with data within {snap_m} m of ({x:.1f}, {y:.1f}).")
+    return best
+
+
+def link_ponds(ponds: gpd.GeoDataFrame, grids: FlowGrids, fixed_outlets: dict | None = None,
+               snap_m: float = 20.0) -> pd.DataFrame:
     """Outlet, catchment areas and next pond downstream for each pond.
 
     Parameters
@@ -145,6 +163,12 @@ def link_ponds(ponds: gpd.GeoDataFrame, grids: FlowGrids) -> pd.DataFrame:
         Pond polygons with a unique ``dam_id`` column, in the grid's CRS or any CRS.
     grids : FlowGrids
         From :func:`flow_grids`.
+    fixed_outlets : dict, optional
+        ``{dam_id: (x, y)}`` in the grid's CRS for ponds whose dam location is known (e.g. a
+        planned dam). The outlet is snapped to the highest-accumulation cell within
+        ``snap_m`` of the point (pour-point snapping), and that cell joins the pond's footprint.
+    snap_m : float
+        Snapping radius for ``fixed_outlets``.
 
     Returns
     -------
@@ -161,11 +185,23 @@ def link_ponds(ponds: gpd.GeoDataFrame, grids: FlowGrids) -> pd.DataFrame:
         raise ValueError("dam_id values must be unique.")
     labels = _label_ponds(ponds, grids)
     rows, cols = grids.fdir.shape
+    fixed = {}
+    for dam_id, (x, y) in (fixed_outlets or {}).items():
+        if str(dam_id) not in ids:
+            raise ValueError(f"fixed_outlets names {dam_id!r}, which is not a pond.")
+        fixed[ids.index(str(dam_id)) + 1] = _snap(grids, x, y, snap_m)
+        labels[fixed[ids.index(str(dam_id)) + 1]] = ids.index(str(dam_id)) + 1
     km2_per_cell = grids.cell_area_m2 / 1e6
     own_km2 = ponds.geometry.area.to_numpy() / 1e6
 
     outlets, totals, found = [], [], []
     for n in range(1, len(ponds) + 1):
+        if n in fixed:
+            r, c = fixed[n]
+            outlets.append((r, c))
+            totals.append(max(grids.acc[r, c] * km2_per_cell, own_km2[n - 1]))
+            found.append(True)
+            continue
         rr, cc = np.nonzero((labels == n) & grids.valid)
         if rr.size == 0:
             outlets.append(None)

@@ -136,3 +136,11 @@ def test_volume_relation_presets(fake_sources):
     assert (model.vol_surfarea_a, model.vol_surfarea_b) == (a, b)
     with pytest.raises(ValueError, match="relation"):
         dl.build_damlist(GRID, volume_relation="unknown")
+
+
+def test_catchment_area_can_include_area_upstream_of_the_aoi(fake_sources):
+    r = dl.build_damlist(GRID, cat_area_km2=5.0)
+    assert r.cat_area_km2 == 5.0 and r.settings["cat_area_km2"] == 5.0
+    assert r.to_model().cat_area_km2 == 5.0
+    with pytest.raises(ValueError, match="smaller"):
+        dl.build_damlist(GRID, cat_area_km2=GRID.area_km2 / 2)

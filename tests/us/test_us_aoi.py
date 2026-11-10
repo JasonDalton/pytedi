@@ -73,3 +73,29 @@ def test_core_import_does_not_load_the_us_stack():
     code = "import sys, pytedi; print(any(m in sys.modules for m in ('pytedi.us', 'geopandas', 'rasterio')))"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "False"
+
+
+def fake_wbd():
+    """A small HUC12 network: 03 <- 02 <- 01, 04 -> 03, 05 elsewhere; 03 drains to 06."""
+    import geopandas as gpd
+
+    rows = [("01", "02", 10.0, box(0, 2, 1, 3)), ("02", "03", 20.0, box(0, 1, 1, 2)),
+            ("04", "03", 5.0, box(1, 1, 2, 2)), ("03", "06", 30.0, box(0, 0, 2, 1)),
+            ("05", "06", 7.0, box(3, 0, 4, 1)), ("06", "07", 50.0, box(0, -1, 4, 0))]
+    return gpd.GeoDataFrame({"huc12": [r[0] for r in rows], "tohuc": [r[1] for r in rows],
+                             "areasqkm": [r[2] for r in rows]}, geometry=[r[3] for r in rows], crs="EPSG:4326")
+
+
+def test_upstream_hucs_and_drainage_area(monkeypatch):
+    wbd = fake_wbd()
+    calls = []
+
+    def near(geometry):
+        calls.append(geometry)
+        return wbd[wbd.intersects(geometry.buffer(0.01))]
+
+    monkeypatch.setattr(aoi_mod, "_huc12_near", near)
+    monkeypatch.setattr(aoi_mod, "huc_geometry", lambda h: wbd.set_index("huc12").geometry[h])
+    assert aoi_mod.upstream_hucs("03") == ["01", "02", "04"]
+    assert aoi_mod.huc_drainage_area("03") == pytest.approx(65.0)
+    assert aoi_mod.upstream_hucs("01") == [] and aoi_mod.huc_drainage_area("01") == pytest.approx(10.0)

@@ -113,3 +113,44 @@ def huc12_at(lat: float, lon: float) -> str:
     if hucs.empty:
         raise ValueError(f"No HUC12 contains {lat}, {lon}.")
     return str(hucs["huc12"].iloc[0])
+
+
+def _huc12_near(geometry) -> gpd.GeoDataFrame:
+    """HUC12s that touch a geometry (WGS84), with huc12, tohuc and areasqkm."""
+    from pygeohydro import WBD
+
+    hucs = WBD("huc12").bygeom(geometry, geo_crs=WGS84).to_crs(WGS84)
+    return hucs.rename(columns={c: c.lower() for c in hucs.columns if c != "geometry"})
+
+
+def _upstream(huc12: str) -> dict[str, float]:
+    """{huc12: area km2} for ``huc12`` and every HUC12 draining into it, directly or not.
+
+    Searches outward one ring of neighbors at a time; an upstream HUC12 always touches the
+    HUC12 it drains into.
+    """
+    geoms = {huc12: huc_geometry(huc12)}
+    areas: dict[str, float] = {}
+    frontier = [huc12]
+    while frontier:
+        near = _huc12_near(gpd.GeoSeries([geoms[h] for h in frontier], crs=WGS84).union_all())
+        new = []
+        for _, row in near.iterrows():
+            h = str(row["huc12"])
+            if h in frontier and h not in areas:
+                areas[h] = float(row["areasqkm"])
+            if str(row["tohuc"]) in frontier and h not in geoms:
+                geoms[h] = row.geometry
+                new.append(h)
+        frontier = new
+    return areas
+
+
+def upstream_hucs(huc12: str) -> list[str]:
+    """Every HUC12 that drains, directly or through others, into ``huc12`` (WBD ``tohuc`` links)."""
+    return sorted(h for h in _upstream(huc12) if h != huc12)
+
+
+def huc_drainage_area(huc12: str) -> float:
+    """Area in km2 draining to the outlet of ``huc12``: itself plus every HUC12 upstream (WBD areas)."""
+    return float(sum(_upstream(huc12).values()))

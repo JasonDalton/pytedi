@@ -137,7 +137,7 @@ def build_damlist(aoi, *, use_naip: bool = True, naip_year: int | None = None, n
                   nhd_dataset: str = "nhd_hr", nid_match_m: float = 150.0, volume_relation="fowler2015",
                   vol_a: float | None = None,
                   vol_b: float | None = None, out_gpkg: str | os.PathLike | None = None,
-                  cache: str | os.PathLike | None = None) -> DamListResult:
+                  cache: str | os.PathLike | None = None, cat_area_km2: float | None = None) -> DamListResult:
     """Fetch the data for an AOI and build a pytedi dam list (see the module notes).
 
     Parameters
@@ -164,10 +164,16 @@ def build_damlist(aoi, *, use_naip: bool = True, naip_year: int | None = None, n
         Override ``a`` and/or ``b`` of the chosen relation.
     out_gpkg : path, optional
         Also write the candidates and inputs to this GeoPackage.
+    cat_area_km2 : float, optional
+        Area draining to the AOI's outlet, for pytedi's ``cat_area_km2``. Defaults to the AOI's
+        area; give more when water enters from upstream (e.g. :func:`~pytedi.us.aoi.huc_drainage_area`).
+        Ponds are mapped only inside the AOI, so the extra area counts as having none.
     cache : path, optional
         Download cache (see :func:`~pytedi.us.fetch.cache_dir`).
     """
     aoi = as_aoi(aoi)
+    if cat_area_km2 is not None and cat_area_km2 < aoi.area_km2 * 0.99:
+        raise ValueError(f"cat_area_km2 ({cat_area_km2}) is smaller than the AOI ({aoi.area_km2:.2f} km2).")
     relation_a, relation_b = relation_coefficients(volume_relation)
     vol_a = relation_a if vol_a is None else vol_a
     vol_b = relation_b if vol_b is None else vol_b
@@ -198,7 +204,9 @@ def build_damlist(aoi, *, use_naip: bool = True, naip_year: int | None = None, n
                     min_area_m2=min_area_m2, max_cloud=max_cloud, dem_resolution=dem_resolution,
                     nhd_dataset=nhd_dataset, nid_match_m=nid_match_m, volume_relation=volume_relation,
                     vol_a=vol_a, vol_b=vol_b)
-    result = DamListResult(to_pytedi_damlist(candidates), candidates, aoi, aoi.area_km2, dem, nhd, nid, s2, settings,
+    settings["cat_area_km2"] = float(cat_area_km2 or aoi.area_km2)
+    result = DamListResult(to_pytedi_damlist(candidates), candidates, aoi, settings["cat_area_km2"], dem, nhd, nid, s2,
+                           settings,
                            naip)
     if out_gpkg is not None:
         result.write_geopackage(out_gpkg)

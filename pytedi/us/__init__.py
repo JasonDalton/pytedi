@@ -15,7 +15,7 @@ The pytedi core never imports it.
 """
 
 try:
-    from .aoi import AOI, as_aoi, huc12_at, huc_geometry
+    from .aoi import AOI, as_aoi, huc12_at, huc_drainage_area, huc_geometry, upstream_hucs
     from .climate import fetch_climate
     from .gauges import fetch_gauge_flow, find_gauges, select_gauge, transfer_flow
     from .scenario import (add_hypothetical_pond, compare_scenarios, plot_comparison, q7_10, run_before_after,
@@ -58,6 +58,8 @@ __all__ = [
     "as_aoi",
     "huc12_at",
     "huc_geometry",
+    "huc_drainage_area",
+    "upstream_hucs",
     "volume_ml_from_area",
     "NHDData",
     "cache_dir",

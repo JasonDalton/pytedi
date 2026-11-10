@@ -30,6 +30,8 @@ def main():
     parser.add_argument("--end", default="2024-09-30", help="Sentinel-2 end date")
     parser.add_argument("--threshold", type=float, default=0.0, help="NDWI water threshold")
     parser.add_argument("--min-area", type=float, default=500.0, help="smallest detected pond, m2")
+    parser.add_argument("--volume-relation", default="fowler2015", choices=["fowler2015", "va_nid_farm"],
+                        help="area-volume relation (default: %(default)s)")
     parser.add_argument("--no-sentinel2", action="store_true", help="use NHD and NID only")
     parser.add_argument("--map", type=Path, default=None, help="map PNG path (default: OUT/hurt_va_map.png)")
     args = parser.parse_args()
@@ -45,6 +47,7 @@ def main():
         date_range=(args.start, args.end),
         ndwi_threshold=args.threshold,
         min_area_m2=args.min_area,
+        volume_relation=args.volume_relation,
         out_gpkg=out / "hurt_va_candidates.gpkg",
         cache=out / "cache",
     )

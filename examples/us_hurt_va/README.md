@@ -41,9 +41,13 @@ Outputs go to `examples/us_hurt_va/output/` (git-ignored):
    highest-accumulation cell; `catchuptotal_km2` is the area draining there; `ds_damid` is the
    first pond the flow path enters ("-99" for the catchment outlet); `catchuplocal_km2` is the
    total less the totals of the ponds directly upstream.
-8. **Volume.** `vol_ML = a * surfacearea_m2 ** b` with the model's own coefficients,
-   a = 0.0001042 and b = 1.3213 (Fowler et al. 2015, farm dams in Victoria, Australia). This is
-   an estimate; pass `vol_a` and `vol_b` for a local relation.
+8. **Volume.** `vol_ML = a * surfacearea_m2 ** b`. The default is the model's own relation,
+   a = 0.0001042 and b = 1.3213 (Fowler et al. 2015, farm dams in Victoria, Australia). Against
+   Virginia's National Inventory of Dams records for private farm-type dams of 2 to 20 acres it
+   gives a median of 0.96 to 1.16 times the listed normal storage. `--volume-relation va_nid_farm`
+   uses a = 0.0122006, b = 0.845694, fitted to 476 of those Virginia dams (R2 0.55); it implies
+   implausibly deep small ponds (about 4.7 m mean depth at 500 m2) because the NID only lists
+   dams that store at least 15 to 50 acre-feet. Both are estimates.
 9. **Dam list.** No demands, bypasses or winterfill yet: every dam gets the engine's neutral
    values (group "none", demand factor 0, operating in all years).
 
@@ -56,7 +60,8 @@ Outputs go to `examples/us_hurt_va/output/` (git-ignored):
 - Lowering the NDWI threshold finds more ponds but also bright roofs and pads; check the map.
 - Catchment areas stop at the AOI boundary. A pond fed from outside the AOI has its
   catchment underestimated.
-- Volumes come from an Australian relation, not a US one.
+- No published area-volume relation for US farm ponds was found; the default is Australian,
+  checked against Virginia NID dams of 2 acres and up.
 
 ## References
 

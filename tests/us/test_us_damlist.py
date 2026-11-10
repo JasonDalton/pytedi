@@ -112,3 +112,16 @@ def test_summary_counts(fake_sources):
     s = dl.build_damlist(GRID).summary()
     assert s["ponds"] == 2 and s["by_source"] == {"nhd": 1, "sentinel2": 1}
     assert s["nid_dams_in_aoi"] == 1 and s["nid_dams_matched"] == 1
+
+
+def test_volume_relation_presets(fake_sources):
+    from pytedi.us.volume import RELATIONS
+
+    r = dl.build_damlist(GRID, volume_relation="va_nid_farm")
+    a, b = RELATIONS["va_nid_farm"]
+    assert r.damlist["vol_ML"].to_numpy() == pytest.approx(a * r.damlist["surfacearea_m2"].to_numpy() ** b)
+    assert r.settings["volume_relation"] == "va_nid_farm"
+    model = r.to_model()
+    assert (model.vol_surfarea_a, model.vol_surfarea_b) == (a, b)
+    with pytest.raises(ValueError, match="relation"):
+        dl.build_damlist(GRID, volume_relation="unknown")

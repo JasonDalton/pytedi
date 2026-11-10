@@ -8,7 +8,7 @@
 4. Sentinel-2 ponds (:func:`~pytedi.us.ponds.detect_ponds_sentinel2`), optional;
 5. one candidate table (:func:`~pytedi.us.merge.merge_candidates`);
 6. outlets, catchment areas and the downstream network (:func:`~pytedi.us.hydro.link_ponds`);
-7. volumes from surface areas (:func:`~pytedi.us.volume.volume_ml_from_area`);
+7. volumes from surface areas with an area-volume relation (:mod:`pytedi.us.volume`);
 8. the dam list in the schema of ``tedimodel().damlist``.
 
 Phase 1 has no demands, bypasses or winterfill: every dam gets the engine's own neutral
@@ -29,7 +29,7 @@ from .fetch import NHDData, fetch_3dep, fetch_nhd, fetch_official_dams
 from .hydro import flow_grids, link_ponds
 from .merge import merge_candidates
 from .ponds import DEFAULT_DATE_RANGE, detect_ponds_sentinel2
-from .volume import default_coefficients, volume_ml_from_area
+from .volume import relation_coefficients, volume_ml_from_area
 
 NEUTRAL = {  # the values the engine gives its own catchment-outlet row (engine.damlist_preprocessing)
     "year_start": 0, "year_end": 9999, "group_name": "none", "demfactor": 0.0,
@@ -129,7 +129,8 @@ class DamListResult:
 
 def build_damlist(aoi, *, use_sentinel2: bool = True, date_range=DEFAULT_DATE_RANGE, ndwi_threshold: float = 0.0,
                   min_area_m2: float = 500.0, max_cloud: float = 20, dem_resolution: int = 10,
-                  nhd_dataset: str = "nhd_hr", nid_match_m: float = 150.0, vol_a: float | None = None,
+                  nhd_dataset: str = "nhd_hr", nid_match_m: float = 150.0, volume_relation="fowler2015",
+                  vol_a: float | None = None,
                   vol_b: float | None = None, out_gpkg: str | os.PathLike | None = None,
                   cache: str | os.PathLike | None = None) -> DamListResult:
     """Fetch the data for an AOI and build a pytedi dam list (see the module notes).
@@ -146,17 +147,20 @@ def build_damlist(aoi, *, use_sentinel2: bool = True, date_range=DEFAULT_DATE_RA
     nhd_dataset : {"nhd_hr", "3dhp"}
     nid_match_m : float
         Largest distance between an NID dam and the pond it is matched to.
+    volume_relation : str or (a, b)
+        "fowler2015" (the model's default), "va_nid_farm" (fitted to Virginia NID farm-type
+        dams; see :mod:`pytedi.us.volume` for its caveats) or an explicit ``(a, b)``.
     vol_a, vol_b : float, optional
-        Area-volume coefficients; the model's defaults (Fowler et al. 2015) otherwise.
+        Override ``a`` and/or ``b`` of the chosen relation.
     out_gpkg : path, optional
         Also write the candidates and inputs to this GeoPackage.
     cache : path, optional
         Download cache (see :func:`~pytedi.us.fetch.cache_dir`).
     """
     aoi = as_aoi(aoi)
-    default_a, default_b = default_coefficients()
-    vol_a = default_a if vol_a is None else vol_a
-    vol_b = default_b if vol_b is None else vol_b
+    relation_a, relation_b = relation_coefficients(volume_relation)
+    vol_a = relation_a if vol_a is None else vol_a
+    vol_b = relation_b if vol_b is None else vol_b
 
     dem = fetch_3dep(aoi, resolution=dem_resolution, cache=cache)
     nhd = fetch_nhd(aoi, dataset=nhd_dataset, cache=cache)
@@ -177,7 +181,8 @@ def build_damlist(aoi, *, use_sentinel2: bool = True, date_range=DEFAULT_DATE_RA
 
     settings = dict(use_sentinel2=use_sentinel2, date_range=tuple(date_range), ndwi_threshold=ndwi_threshold,
                     min_area_m2=min_area_m2, max_cloud=max_cloud, dem_resolution=dem_resolution,
-                    nhd_dataset=nhd_dataset, nid_match_m=nid_match_m, vol_a=vol_a, vol_b=vol_b)
+                    nhd_dataset=nhd_dataset, nid_match_m=nid_match_m, volume_relation=volume_relation,
+                    vol_a=vol_a, vol_b=vol_b)
     result = DamListResult(to_pytedi_damlist(candidates), candidates, aoi, aoi.area_km2, dem, nhd, nid, s2, settings)
     if out_gpkg is not None:
         result.write_geopackage(out_gpkg)

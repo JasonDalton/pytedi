@@ -41,19 +41,46 @@ def test_shape_filter_keeps_ponds_and_drops_shadow_strips():
     assert list(kept.index) == [0, 2]
 
 
-def test_detect_ponds_naip_end_to_end(monkeypatch):
-    seen = {}
+def fake_years_and_images(monkeypatch, images):
+    """images: {year: array}. Records the years loaded."""
+    loaded = []
+    monkeypatch.setattr(ponds, "_naip_years", lambda aoi: sorted(images))
 
     def fake_load(aoi, year, resolution, cache):
-        seen.update(year=year, resolution=resolution)
-        return synthetic_naip(), T, "EPSG:5070", 2023
+        loaded.append((year, resolution))
+        return images[year], T, "EPSG:5070", year
 
     monkeypatch.setattr(ponds, "_load_naip", fake_load)
+    return loaded
+
+
+def test_detect_ponds_naip_end_to_end(monkeypatch):
+    img = synthetic_naip()
+    loaded = fake_years_and_images(monkeypatch, {2021: img, 2023: img})
     found = ponds.detect_ponds_naip(GRID)
-    assert seen == {"year": None, "resolution": 1.0}
+    assert loaded == [(2023, 1.0), (2021, 1.0)]  # the latest year, checked against the one before
     assert sorted(found["surfacearea_m2"].round()) == [400.0, 1120.0]
     assert (found["source"] == "naip").all() and found.crs.to_epsg() == 5070
-    assert found.attrs["year"] == 2023 and found.attrs["threshold"] == 0.5
+    assert found.attrs["year"] == 2023 and found.attrs["confirm_year"] == 2021 and found.attrs["threshold"] == 0.5
+
+
+def test_small_ponds_must_also_be_water_in_the_previous_year(monkeypatch):
+    now, before = synthetic_naip(), synthetic_naip()
+    # In the earlier year the 20 x 20 m pond (400 m2, under 500 m2) is dry; the big one is still there.
+    before[3][20:40, 20:40] = 200
+    fake_years_and_images(monkeypatch, {2021: before, 2023: now})
+    found = ponds.detect_ponds_naip(GRID)
+    assert sorted(found["surfacearea_m2"].round()) == [1120.0]
+    assert found.attrs["unconfirmed_dropped"] == 1
+    # Without a check year, or with a lower size limit, it stays.
+    assert len(ponds.detect_ponds_naip(GRID, confirm_year=None)) == 2
+    assert len(ponds.detect_ponds_naip(GRID, confirm_below_m2=300)) == 2
+
+
+def test_only_one_naip_year_skips_the_check(monkeypatch):
+    fake_years_and_images(monkeypatch, {2023: synthetic_naip()})
+    found = ponds.detect_ponds_naip(GRID)
+    assert len(found) == 2 and found.attrs["confirm_year"] is None
 
 
 def test_latest_naip_year_is_picked():

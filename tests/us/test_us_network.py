@@ -65,3 +65,10 @@ def test_reference_gauges_and_flow(cache):
     assert chosen["site_no"] == "02056900" and reasons["02065500"] == "farther than the chosen gauge"
     q = fetch_gauge_flow("02056900", "2020-01-01", "2020-01-31")
     assert len(q) == 31 and (q > 0).all()
+
+
+def test_drainage_area_of_a_huc12_that_receives_a_river():
+    from pytedi.us import huc_drainage_area, upstream_hucs
+
+    assert upstream_hucs("020700030504") == ["020700030501", "020700030502", "020700030503"]
+    assert huc_drainage_area("020700030504") == pytest.approx(389.29, abs=0.01)

@@ -119,6 +119,8 @@ def _huc12_near(geometry) -> gpd.GeoDataFrame:
     """HUC12s that touch a geometry (WGS84), with huc12, tohuc and areasqkm."""
     from pygeohydro import WBD
 
+    if geometry.geom_type != "Polygon":  # the service takes single polygons; the tohuc test keeps it exact
+        geometry = geometry.envelope
     hucs = WBD("huc12").bygeom(geometry, geo_crs=WGS84).to_crs(WGS84)
     return hucs.rename(columns={c: c.lower() for c in hucs.columns if c != "geometry"})
 

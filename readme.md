@@ -97,7 +97,7 @@ Please refer to the [user manual](UserManual.md) for examples of how to:
 
 ## US data (optional)
 
-The optional `pytedi.us` subpackage builds a dam list for any area in the United States from public data: USGS 3DEP terrain, USGS National Hydrography Dataset (NHD) ponds and streams, the USACE National Inventory of Dams, and farm ponds detected in Sentinel-2 imagery. It is not needed for the core model and is installed separately:
+The optional `pytedi.us` subpackage builds a dam list for any area in the United States from public data: USGS 3DEP terrain, USGS National Hydrography Dataset (NHD) ponds and streams, the USACE National Inventory of Dams, and farm ponds detected in NAIP aerial imagery (1 m) and Sentinel-2 satellite imagery. It is not needed for the core model and is installed separately:
 
 ```
 pip install "pytedi[us]"

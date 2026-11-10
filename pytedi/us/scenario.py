@@ -264,6 +264,12 @@ def plot_comparison(cmp: Comparison, path: str | os.PathLike | None = None, titl
         ax.set_title(f"{name}: flow duration curve")
         ax.grid(True, which="both", alpha=0.3)
         ax.legend()
+        stats = cmp.summary[loc]
+        ax.text(0.02, 0.03, f"Mean flow change: {stats['mean_flow_change_percent']:+.2f}%\n"
+                            f"7Q10: {stats['q7_10_before_ML_per_day']:.3g} \u2192 {stats['q7_10_after_ML_per_day']:.3g} ML/day\n"
+                            f"Captured: {stats['mean_annual_captured_ML']:.3g} ML/yr",
+                transform=ax.transAxes, fontsize=8, va="bottom",
+                bbox=dict(facecolor="white", alpha=0.85, edgecolor="#999999"))
         ax = axes[1, col]
         months = np.arange(1, 13)
         width = 0.4

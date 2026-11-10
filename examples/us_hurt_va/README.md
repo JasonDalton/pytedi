@@ -84,3 +84,70 @@ https://doi.org/10.1080/13241583.2015.1116182
 McFeeters, S.K., 1996. The use of the Normalized Difference Water Index (NDWI) in the
 delineation of open water features. International Journal of Remote Sensing 17, 1425-1432.
 https://doi.org/10.1080/01431169608948714
+
+# Example: before/after streamflow for a new pond (PLACEHOLDER)
+
+`run_scenario.py` estimates how a new farm pond would change streamflow just below its dam and
+at the watershed outlet. The site and size in the script are **placeholders** that exercise the
+method, not a proposed project: a 0.25 ha pond with no water use, with its dam at the midpoint of
+the longest intermittent NHD flowline (FCode 46003) that is at least 200 m from any existing pond.
+
+```
+python examples/us_hurt_va/run_scenario.py        # about 3 minutes once run_hurt.py has filled the cache
+```
+
+Outputs in `output/scenario_placeholder/`: `comparison.png` (flow duration curves and monthly means,
+before and after, below the dam and at the outlet), `comparison_daily.csv`, `_monthly.csv`, `_fdc.csv`,
+`_low_flow.csv`, `_summary.csv`, `gauge_candidates.csv` (every gauge considered and why it was or
+wasn't chosen) and `summary.json` (all of it, with sources and parameters).
+
+## Method
+
+1. **Dam list** as above (`build_damlist`).
+2. **Rain and evaporation** (mm/day): gridMET (Abatzoglou 2013), mean of the 4 km cells over the
+   HUC12. Evaporation from the pond is 1.05 x gridMET grass reference ET (FAO-56 Table 12, open water
+   less than 2 m deep; Allen et al. 1998). gridMET as served omits 31 December of leap years; those
+   days are interpolated and listed in `summary.json`.
+3. **Streamflow**: USGS daily mean discharge at a reference gauge, chosen by a fixed rule from NWIS
+   sites within 150 km with 0.2 to 5 times the HUC12's drainage area: at least 30 complete years in
+   the period, GAGES-II reference class (Falcone 2011), the same GAGES-II aggregated ecoregion as the
+   HUC12, then the nearest to the HUC12's centroid. Scaled to the outlet by drainage-area ratio.
+   1 cfs = 2.446575 ML/day.
+4. **Observed, then natural**: the transferred record is treated as present-day flow with the
+   existing ponds (the gauge's basin has farm ponds too); pytedi's reverse solver ("nat" mode)
+   back-calculates the flow without them.
+5. **Before and after**: the same natural flow is routed through the existing ponds, with the new
+   pond as a pass-through node (before) or as a pond (after). Ponds start full. pytedi reports flow
+   leaving a dam and at the outlet, not at arbitrary points, which is why the before case keeps a
+   pass-through node at the dam site.
+6. **Statistics**: monthly means; flow duration (percent of days equaled or exceeded); the lowest
+   7-day mean flow in each April-March climatic year; an empirical 7Q10 (Weibull 0.1 quantile of
+   those minima, not the USGS log-Pearson III fit); days under 0.001 ML/day; and the mean annual
+   volume the new pond takes (before minus after).
+
+## Limits a reviewer will ask about
+
+- **Intermittency is not reproduced.** Flow at the site is the gauge's daily flow scaled by area.
+  The gauge is a perennial river draining about 300 km2, so the modeled site never runs dry, while
+  an intermittent channel draining about 1 km2 does. Low-flow and zero-flow statistics at the site
+  are therefore not reliable; the outlet's are better founded. Options: a gauge on a small
+  intermittent stream, a rainfall-runoff model for the site, or field observations.
+- **Equal runoff per km2.** pytedi spreads the outlet's flow over every pond's catchment by area.
+- **Pond geometry.** Volume comes from an area-volume relation (Fowler et al. 2015 by default), not
+  a design. The footprint is drawn as a circle around the dam; only the dam location and the DEM
+  set the catchment.
+- **Use.** The placeholder takes no water, so its only loss is net evaporation (evaporation minus
+  rain on the pond), plus refilling after dry spells. A pond that supplies stock or irrigation
+  takes more (`group_name`, `demfactor`).
+- **Reverse solver.** On a few days pytedi cannot match the observed flow with a non-negative natural
+  flow and extrapolates; it warns with the date and residual.
+- **Data.** Recent USGS values are provisional; filled gauge days are listed in `summary.json`.
+
+Abatzoglou, J.T., 2013. Development of gridded surface meteorological data for ecological applications and
+modelling. International Journal of Climatology 33, 121-131. https://doi.org/10.1002/joc.3413
+
+Allen, R.G., Pereira, L.S., Raes, D., Smith, M., 1998. Crop evapotranspiration. FAO Irrigation and Drainage
+Paper 56, Rome. Table 12.
+
+Falcone, J.A., 2011. GAGES-II: Geospatial Attributes of Gages for Evaluating Streamflow. U.S. Geological
+Survey. https://doi.org/10.5066/P96CPHOT

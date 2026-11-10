@@ -48,3 +48,20 @@ def test_sentinel2_finds_water():
 def test_naip_finds_water(cache):
     ponds = detect_ponds_naip(SMALL, cache=cache)
     assert ponds.attrs["year"] >= 2023 and "surfacearea_m2" in ponds.columns
+
+
+def test_gridmet_climate(cache):
+    from pytedi.us import fetch_climate
+
+    c = fetch_climate(as_aoi(HURT_HUC12), "2020-12-28", "2021-01-03", cache=cache)
+    assert len(c) == 7 and c.attrs["filled_dates"] == ["2020-12-31"] and (c["evap"] >= 0).all()
+
+
+def test_reference_gauges_and_flow(cache):
+    from pytedi.us import fetch_gauge_flow, find_gauges, select_gauge
+
+    candidates = find_gauges(as_aoi(HURT_HUC12), period=("1980-01-01", "2025-12-31"), cache=cache)
+    chosen, reasons = select_gauge(candidates)
+    assert chosen["site_no"] == "02056900" and reasons["02065500"] == "farther than the chosen gauge"
+    q = fetch_gauge_flow("02056900", "2020-01-01", "2020-01-31")
+    assert len(q) == 31 and (q > 0).all()

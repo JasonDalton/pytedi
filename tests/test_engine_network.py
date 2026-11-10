@@ -1601,3 +1601,20 @@ def test_historical_scaling_is_applied_once_to_variable_surface_area():
     # No demand or inflow occurs, so:
     # 4.0 - 0.4 = 3.6 ML.
     assert result["estore"] == pytest.approx(3.6)
+
+def test_text_dam_ids_with_integer_outlet_marker_under_pyarrow_dtypes():
+    """Text dam ids with the integer -99 outlet must validate when pandas stores the
+    columns as pyarrow arrays (the default for some dtypes once pyarrow is installed).
+    Comparing an int64[pyarrow] column with string values raised ArrowTypeError."""
+    pytest.importorskip("pyarrow")
+    from pytedi.engine import damlist_preprocessing
+
+    m = tedimodel()
+    m.cat_area_km2 = 10.0
+    m.damlist.loc[0] = ["Dam001", -99, 1000.0, 1.0, 1.0, 10.0, 0, 9999, "Irrigation", 0.0, 0.0, 101, 1231, 0.0, 101, 1231, 1]
+    m.damlist.loc[1] = ["Dam002", -99, 500.0, 0.5, 0.5, 5.0, 0, 9999, "Irrigation", 0.0, 0.0, 101, 1231, 0.0, 101, 1231, 1]
+    damlist = m.damlist.copy()
+    damlist["dam_id"] = damlist["dam_id"].astype("string[pyarrow]")
+    damlist["ds_damid"] = pd.Series([-99, -99], dtype="int64[pyarrow]")  # integer outlet markers only
+    demands = pd.DataFrame({"Irrigation": [0.0]}, index=pd.date_range("2000-01-01", periods=1))
+    damlist_preprocessing(damlist, demands, m.cat_area_km2, m.scale_limit)  # must not raise

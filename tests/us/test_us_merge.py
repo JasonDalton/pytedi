@@ -35,8 +35,8 @@ def nid():
 
 def test_sources_and_dedupe(nhd, s2, nid):
     c = merge_candidates(nhd, s2, nid)
-    assert sorted(c["source"]) == ["both", "nhd", "nid", "sentinel2", "sentinel2"]
-    both = c[c["source"] == "both"].iloc[0]
+    assert sorted(c["source"]) == ["nhd", "nhd+sentinel2", "nid", "sentinel2", "sentinel2"]
+    both = c[c["source"] == "nhd+sentinel2"].iloc[0]
     assert both["nhd_id"] == "n1" and both["name"] == "Mill Pond"
     assert both.geometry.equals(sq(0, 0))  # NHD outline kept
     assert both["surfacearea_m2"] == pytest.approx(2500.0)
@@ -81,7 +81,7 @@ def test_one_sentinel2_polygon_touching_two_nhd_ponds_marks_both():
     nhd = gpd.GeoDataFrame({"permanent_identifier": ["a", "b"]}, geometry=[sq(0, 0), sq(60, 0)], crs=CRS)
     s2 = gpd.GeoDataFrame({"surfacearea_m2": [3000.0]}, geometry=[box(30, 10, 80, 40)], crs=CRS)
     c = merge_candidates(nhd, s2, gpd.GeoDataFrame(geometry=[], crs=CRS))
-    assert list(c["source"]) == ["both", "both"]
+    assert list(c["source"]) == ["nhd+sentinel2", "nhd+sentinel2"]
 
 
 def test_numeric_columns_stay_numeric(nhd, s2, nid):
@@ -89,3 +89,16 @@ def test_numeric_columns_stay_numeric(nhd, s2, nid):
     assert c["nid_storage_ML"].dtype == "float64" and c["surfacearea_m2"].dtype == "float64"
     assert c.loc[c["nid_id"] == "VA1", "nid_storage_ML"].iloc[0] == 60.0
     assert c["area_from_default"].dtype == bool
+
+
+def test_naip_detections_merge_before_sentinel2(nhd, s2, nid):
+    naip = gpd.GeoDataFrame({"surfacearea_m2": [2500.0, 400.0, 300.0], "source": "naip"},
+                            geometry=[sq(5, 5, 45), sq(505, 505, 20), sq(8000, 0, 17)], crs=CRS)
+    c = merge_candidates(nhd, s2, nid, naip_ponds=naip)
+    by_source = c["source"].value_counts().to_dict()
+    # n1 seen by all three; the S2 pond at (500, 500) also seen by NAIP, keeping NAIP's 1 m outline;
+    # a NAIP-only pond; the S2 pond at (3000, 0) only in S2; n2 only in NHD; the far NID dam alone.
+    assert by_source == {"nhd+naip+sentinel2": 1, "naip+sentinel2": 1, "naip": 1, "sentinel2": 1, "nhd": 1, "nid": 1}
+    shared = c[c["source"] == "naip+sentinel2"].iloc[0]
+    assert shared.geometry.equals(sq(505, 505, 20)) and shared["surfacearea_m2"] == pytest.approx(400.0)
+    assert c.loc[c["source"] == "naip", ["in_nhd", "in_naip", "in_sentinel2"]].iloc[0].tolist() == [False, True, False]

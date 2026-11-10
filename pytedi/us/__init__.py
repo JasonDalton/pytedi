@@ -21,6 +21,7 @@ try:
     from .hydro import FlowGrids, flow_grids, link_ponds
     from .merge import merge_candidates
     from .plot import plot_candidates
+    from .naip import detect_ponds_naip
     from .ponds import detect_ponds_sentinel2, ndwi
     from .volume import volume_ml_from_area
 except ImportError as exc:  # pragma: no cover - exercised only without the extra
@@ -45,6 +46,7 @@ __all__ = [
     "fetch_official_dams",
     "nid_inventory_path",
     "detect_ponds_sentinel2",
+    "detect_ponds_naip",
     "ndwi",
     "FlowGrids",
     "flow_grids",

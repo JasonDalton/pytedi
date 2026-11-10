@@ -6,12 +6,13 @@ import os
 
 import numpy as np
 
-SOURCE_STYLE = {  # source -> (legend label, fill color)
-    "nhd": ("NHD only", "#3987e5"),
-    "both": ("NHD and Sentinel-2", "#199e70"),
-    "sentinel2": ("Sentinel-2 only", "#d95926"),
-    "nid": ("NID only (footprint from NID area)", "#8b6fd6"),
-}
+CATEGORIES = (  # (legend label, fill color, test on the source label)
+    ("NHD, not seen in imagery", "#3987e5", lambda s: s == "nhd"),
+    ("NHD, confirmed by imagery", "#199e70", lambda s: s.startswith("nhd+")),
+    ("New: NAIP (1 m)", "#d95926", lambda s: s.startswith("naip")),
+    ("New: Sentinel-2 only", "#c9a227", lambda s: s == "sentinel2"),
+    ("NID only (footprint from NID area)", "#8b6fd6", lambda s: s == "nid"),
+)
 
 
 def plot_candidates(result, path: str | os.PathLike | None = None, title: str | None = None, dpi: int = 200,
@@ -50,8 +51,8 @@ def plot_candidates(result, path: str | os.PathLike | None = None, title: str | 
     c = result.candidates
     handles = [Line2D([], [], color="#5aa9e6", lw=1, label="NHD flowline"),
                Line2D([], [], color="black", lw=1.2, label="AOI boundary")]
-    for source, (label, color) in SOURCE_STYLE.items():
-        part = c[c["source"] == source]
+    for label, color, test in CATEGORIES:
+        part = c[c["source"].map(test)] if not c.empty else c
         if part.empty:
             continue
         part.plot(ax=ax, facecolor=color, edgecolor=color, linewidth=1.2, alpha=0.9)
@@ -63,8 +64,8 @@ def plot_candidates(result, path: str | os.PathLike | None = None, title: str | 
             if row["ds_damid"] != "-99" and row["ds_damid"] in by_id.index:
                 target = by_id.loc[row["ds_damid"]]
                 ax.annotate("", xy=(target["outlet_x"], target["outlet_y"]), xytext=(row["outlet_x"], row["outlet_y"]),
-                            arrowprops=dict(arrowstyle="->", color="#c9a227", lw=0.6, alpha=0.8))
-        handles.append(Line2D([], [], color="#c9a227", lw=1, label="flows to next pond"))
+                            arrowprops=dict(arrowstyle="->", color="#444444", lw=0.6, alpha=0.8))
+        handles.append(Line2D([], [], color="#444444", lw=1, label="flows to next pond"))
 
     if not result.nid_dams.empty:
         result.nid_dams.plot(ax=ax, marker="^", color="#d4588b", edgecolor="black", markersize=60, zorder=5)

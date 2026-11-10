@@ -32,6 +32,9 @@ def fake_sources(monkeypatch):
     s2 = gpd.GeoDataFrame({"surfacearea_m2": [900.0], "source": "sentinel2"}, geometry=[cells(25, 27, 9, 11)], crs=CRS)
     nid = gpd.GeoDataFrame({"nid_id": ["VA9"], "name": ["Lower Dam"], "storage_ML": [5.0], "surfacearea_m2": [900.0]},
                            geometry=[Point(X0 + 105, Y0 - 285)], crs=CRS)
+    # NAIP sees the downstream pond and a small pond on the hillslope that nothing else found.
+    naip = gpd.GeoDataFrame({"surfacearea_m2": [900.0, 200.0], "source": "naip"},
+                            geometry=[cells(25, 27, 9, 11), cells(15, 16, 2, 3)], crs=CRS)
     calls = {}
     monkeypatch.setattr(dl, "fetch_3dep", lambda aoi, resolution, cache=None: valley_dem())
     monkeypatch.setattr(dl, "fetch_nhd", lambda aoi, dataset, cache=None: nhd)
@@ -42,6 +45,12 @@ def fake_sources(monkeypatch):
         return s2
 
     monkeypatch.setattr(dl, "detect_ponds_sentinel2", fake_detect)
+
+    def fake_naip(aoi, year, threshold, min_area_m2, cache=None):
+        calls.update(naip_year=year, naip_threshold=threshold)
+        return naip
+
+    monkeypatch.setattr(dl, "detect_ponds_naip", fake_naip)
     return calls
 
 
@@ -49,12 +58,13 @@ def test_build_damlist_links_the_ponds(fake_sources):
     r = dl.build_damlist(GRID, date_range=("2024-06-01", "2024-09-30"), ndwi_threshold=0.1)
     assert fake_sources["threshold"] == 0.1 and fake_sources["min_area_m2"] == 500.0
     c = r.candidates.set_index("source")
-    assert set(c.index) == {"nhd", "sentinel2"}
-    up, down = c.loc["nhd"], c.loc["sentinel2"]
-    assert up["ds_damid"] == down["dam_id"] and down["ds_damid"] == "-99"
+    assert set(c.index) == {"nhd", "naip+sentinel2", "naip"}
+    up, down, side = c.loc["nhd"], c.loc["naip+sentinel2"], c.loc["naip"]
+    assert up["ds_damid"] == down["dam_id"] and side["ds_damid"] == down["dam_id"] and down["ds_damid"] == "-99"
     assert down["nid_id"] == "VA9"
     assert r.cat_area_km2 == pytest.approx(GRID.area_km2)
-    assert len(r.damlist) == 2
+    assert len(r.damlist) == 3
+    assert fake_sources["naip_year"] is None and fake_sources["naip_threshold"] == 0.5
 
 
 def test_damlist_has_the_tedimodel_schema_and_passes_engine_checks(fake_sources):
@@ -88,8 +98,8 @@ def test_damlist_runs_in_the_model(fake_sources):
 
 def test_without_sentinel2_and_writing_a_geopackage(fake_sources, tmp_path):
     out = tmp_path / "ponds.gpkg"
-    r = dl.build_damlist(GRID, use_sentinel2=False, out_gpkg=out)
-    assert "date_range" not in fake_sources
+    r = dl.build_damlist(GRID, use_sentinel2=False, use_naip=False, out_gpkg=out)
+    assert "date_range" not in fake_sources and "naip_year" not in fake_sources
     assert set(r.candidates["source"]) == {"nhd", "nid"}
     layers = {name for name, _ in pyogrio.list_layers(out)}
     assert {"candidates", "outlets", "nid_dams", "flowlines", "aoi"} <= layers
@@ -103,6 +113,7 @@ def test_no_ponds_gives_an_empty_valid_damlist(monkeypatch):
     monkeypatch.setattr(dl, "fetch_nhd", lambda aoi, dataset, cache=None: nothing)
     monkeypatch.setattr(dl, "fetch_official_dams", lambda aoi, cache=None: empty())
     monkeypatch.setattr(dl, "detect_ponds_sentinel2", lambda *a, **k: empty())
+    monkeypatch.setattr(dl, "detect_ponds_naip", lambda *a, **k: empty())
     r = dl.build_damlist(GRID)
     assert r.damlist.empty and list(r.damlist.columns) == list(tedimodel().damlist.columns)
     assert r.candidates.empty
@@ -110,7 +121,7 @@ def test_no_ponds_gives_an_empty_valid_damlist(monkeypatch):
 
 def test_summary_counts(fake_sources):
     s = dl.build_damlist(GRID).summary()
-    assert s["ponds"] == 2 and s["by_source"] == {"nhd": 1, "sentinel2": 1}
+    assert s["ponds"] == 3 and s["by_source"] == {"naip": 1, "naip+sentinel2": 1, "nhd": 1}
     assert s["nid_dams_in_aoi"] == 1 and s["nid_dams_matched"] == 1
 
 

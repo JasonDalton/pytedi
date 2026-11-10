@@ -6,7 +6,7 @@ They need internet access and download about 80 MB once (the NID GeoPackage).
 """
 import pytest
 
-from pytedi.us import (as_aoi, detect_ponds_sentinel2, fetch_3dep, fetch_nhd, fetch_official_dams, huc12_at)
+from pytedi.us import (as_aoi, detect_ponds_naip, detect_ponds_sentinel2, fetch_3dep, fetch_nhd, fetch_official_dams, huc12_at)
 
 pytestmark = pytest.mark.network
 HURT_HUC12 = "030101011304"
@@ -43,3 +43,8 @@ def test_national_inventory_of_dams(cache):
 def test_sentinel2_finds_water():
     ponds = detect_ponds_sentinel2(SMALL)
     assert ponds.attrs["scenes"] > 0
+
+
+def test_naip_finds_water(cache):
+    ponds = detect_ponds_naip(SMALL, cache=cache)
+    assert ponds.attrs["year"] >= 2023 and "surfacearea_m2" in ponds.columns

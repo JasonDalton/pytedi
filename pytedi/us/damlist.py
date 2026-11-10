@@ -5,7 +5,8 @@
 1. 3DEP DEM for the AOI (:func:`~pytedi.us.fetch.fetch_3dep`);
 2. NHD ponds, flowlines and rivers (:func:`~pytedi.us.fetch.fetch_nhd`);
 3. NID dams (:func:`~pytedi.us.fetch.fetch_official_dams`);
-4. Sentinel-2 ponds (:func:`~pytedi.us.ponds.detect_ponds_sentinel2`), optional;
+4. ponds detected in NAIP 1 m imagery (:func:`~pytedi.us.naip.detect_ponds_naip`) and
+   Sentinel-2 (:func:`~pytedi.us.ponds.detect_ponds_sentinel2`), each optional;
 5. one candidate table (:func:`~pytedi.us.merge.merge_candidates`);
 6. outlets, catchment areas and the downstream network (:func:`~pytedi.us.hydro.link_ponds`);
 7. volumes from surface areas with an area-volume relation (:mod:`pytedi.us.volume`);
@@ -28,6 +29,7 @@ from .aoi import AOI, EQUAL_AREA, as_aoi
 from .fetch import NHDData, fetch_3dep, fetch_nhd, fetch_official_dams
 from .hydro import flow_grids, link_ponds
 from .merge import merge_candidates
+from .naip import detect_ponds_naip
 from .ponds import DEFAULT_DATE_RANGE, detect_ponds_sentinel2
 from .volume import relation_coefficients, volume_ml_from_area
 
@@ -67,7 +69,7 @@ class DamListResult:
     aoi : AOI
     cat_area_km2 : float
         Area of the AOI, for ``tedimodel().cat_area_km2``.
-    dem, nhd, nid_dams, s2_ponds :
+    dem, nhd, nid_dams, s2_ponds, naip_ponds :
         The inputs, kept for plots and checks.
     settings : dict
         The parameters used.
@@ -82,6 +84,7 @@ class DamListResult:
     nid_dams: gpd.GeoDataFrame
     s2_ponds: gpd.GeoDataFrame | None
     settings: dict = field(default_factory=dict)
+    naip_ponds: gpd.GeoDataFrame | None = None
 
     def to_model(self, title: str | None = None) -> tedimodel:
         """A ``tedimodel`` with this dam list and catchment area; add ``ts`` before running."""
@@ -127,7 +130,9 @@ class DamListResult:
         self.aoi.to_crs(EQUAL_AREA).to_gdf().to_file(path, layer="aoi", driver="GPKG")
 
 
-def build_damlist(aoi, *, use_sentinel2: bool = True, date_range=DEFAULT_DATE_RANGE, ndwi_threshold: float = 0.0,
+def build_damlist(aoi, *, use_naip: bool = True, naip_year: int | None = None, naip_threshold: float = 0.5,
+                  naip_min_area_m2: float = 100.0,
+                  use_sentinel2: bool = True, date_range=DEFAULT_DATE_RANGE, ndwi_threshold: float = 0.0,
                   min_area_m2: float = 500.0, max_cloud: float = 20, dem_resolution: int = 10,
                   nhd_dataset: str = "nhd_hr", nid_match_m: float = 150.0, volume_relation="fowler2015",
                   vol_a: float | None = None,
@@ -138,8 +143,13 @@ def build_damlist(aoi, *, use_sentinel2: bool = True, date_range=DEFAULT_DATE_RA
     Parameters
     ----------
     aoi : anything :func:`~pytedi.us.aoi.as_aoi` accepts, e.g. a HUC12 id
+    use_naip : bool
+        Add ponds detected in NAIP 1 m imagery (the first run for an AOI takes minutes to
+        download it; it is cached).
+    naip_year, naip_threshold, naip_min_area_m2 :
+        Passed to :func:`~pytedi.us.naip.detect_ponds_naip` (latest year by default).
     use_sentinel2 : bool
-        Add ponds detected in Sentinel-2 imagery to the mapped ones.
+        Add ponds detected in Sentinel-2 imagery.
     date_range, ndwi_threshold, min_area_m2, max_cloud :
         Passed to :func:`~pytedi.us.ponds.detect_ponds_sentinel2`.
     dem_resolution : int
@@ -165,12 +175,16 @@ def build_damlist(aoi, *, use_sentinel2: bool = True, date_range=DEFAULT_DATE_RA
     dem = fetch_3dep(aoi, resolution=dem_resolution, cache=cache)
     nhd = fetch_nhd(aoi, dataset=nhd_dataset, cache=cache)
     nid = fetch_official_dams(aoi, cache=cache)
+    naip = None
+    if use_naip:
+        naip = detect_ponds_naip(aoi, year=naip_year, threshold=naip_threshold, min_area_m2=naip_min_area_m2,
+                                 cache=cache)
     s2 = None
     if use_sentinel2:
         s2 = detect_ponds_sentinel2(aoi, date_range=tuple(date_range), threshold=ndwi_threshold,
                                     min_area_m2=min_area_m2, max_cloud=max_cloud)
     candidates = merge_candidates(nhd.waterbodies, s2 if s2 is not None else gpd.GeoDataFrame(geometry=[], crs=EQUAL_AREA),
-                                  nid, rivers=nhd.rivers, nid_match_m=nid_match_m)
+                                  nid, rivers=nhd.rivers, nid_match_m=nid_match_m, naip_ponds=naip)
     candidates.insert(0, "dam_id", pd.Series([str(i) for i in range(1, len(candidates) + 1)],
                                              index=candidates.index, dtype="object"))
 
@@ -179,11 +193,13 @@ def build_damlist(aoi, *, use_sentinel2: bool = True, date_range=DEFAULT_DATE_RA
     candidates["vol_ML"] = volume_ml_from_area(candidates["surfacearea_m2"].to_numpy(dtype=float), vol_a, vol_b)
     candidates = gpd.GeoDataFrame(candidates, geometry="geometry", crs=EQUAL_AREA)
 
-    settings = dict(use_sentinel2=use_sentinel2, date_range=tuple(date_range), ndwi_threshold=ndwi_threshold,
+    settings = dict(use_naip=use_naip, naip_year=None if naip is None else naip.attrs.get("year", naip_year),
+                    naip_threshold=naip_threshold, naip_min_area_m2=naip_min_area_m2, use_sentinel2=use_sentinel2, date_range=tuple(date_range), ndwi_threshold=ndwi_threshold,
                     min_area_m2=min_area_m2, max_cloud=max_cloud, dem_resolution=dem_resolution,
                     nhd_dataset=nhd_dataset, nid_match_m=nid_match_m, volume_relation=volume_relation,
                     vol_a=vol_a, vol_b=vol_b)
-    result = DamListResult(to_pytedi_damlist(candidates), candidates, aoi, aoi.area_km2, dem, nhd, nid, s2, settings)
+    result = DamListResult(to_pytedi_damlist(candidates), candidates, aoi, aoi.area_km2, dem, nhd, nid, s2, settings,
+                           naip)
     if out_gpkg is not None:
         result.write_geopackage(out_gpkg)
     return result

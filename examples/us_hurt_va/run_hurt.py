@@ -3,8 +3,8 @@
 Hurt is in Pittsylvania County, Virginia, on the Staunton (Roanoke) River. This script:
 
 1. looks up the HUC12 that contains Hurt in the USGS Watershed Boundary Dataset;
-2. fetches 3DEP terrain, NHD hydrography, National Inventory of Dams records and
-   Sentinel-2 imagery for it, and detects ponds;
+2. fetches 3DEP terrain, NHD hydrography, National Inventory of Dams records, NAIP
+   aerial imagery and Sentinel-2 imagery for it, and detects ponds;
 3. links the ponds on the DEM and writes the dam list, a GeoPackage and a map to
    ``output/`` (git-ignored), then prints a summary.
 
@@ -32,6 +32,8 @@ def main():
     parser.add_argument("--min-area", type=float, default=500.0, help="smallest detected pond, m2")
     parser.add_argument("--volume-relation", default="fowler2015", choices=["fowler2015", "va_nid_farm"],
                         help="area-volume relation (default: %(default)s)")
+    parser.add_argument("--no-naip", action="store_true", help="skip NAIP 1 m pond detection")
+    parser.add_argument("--naip-year", type=int, default=None, help="NAIP year (default: latest)")
     parser.add_argument("--no-sentinel2", action="store_true", help="use NHD and NID only")
     parser.add_argument("--map", type=Path, default=None, help="map PNG path (default: OUT/hurt_va_map.png)")
     args = parser.parse_args()
@@ -43,6 +45,8 @@ def main():
 
     result = build_damlist(
         huc,
+        use_naip=not args.no_naip,
+        naip_year=args.naip_year,
         use_sentinel2=not args.no_sentinel2,
         date_range=(args.start, args.end),
         ndwi_threshold=args.threshold,
@@ -56,6 +60,9 @@ def main():
     plot_candidates(result, map_path, title=f"Hurt, VA: HUC12 {huc}, candidate farm ponds")
 
     summary = result.summary()
+    if result.naip_ponds is not None:
+        summary["naip_year"] = result.naip_ponds.attrs.get("year")
+        summary["naip_polygons_before_merge"] = len(result.naip_ponds)
     if result.s2_ponds is not None:
         summary["sentinel2_scenes"] = result.s2_ponds.attrs.get("scenes")
         summary["sentinel2_polygons_before_merge"] = len(result.s2_ponds)

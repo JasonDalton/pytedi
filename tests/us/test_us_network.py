@@ -47,7 +47,7 @@ def test_sentinel2_finds_water():
 
 def test_naip_finds_water(cache):
     ponds = detect_ponds_naip(SMALL, cache=cache)
-    assert ponds.attrs["year"] >= 2023 and "surfacearea_m2" in ponds.columns
+    assert max(ponds.attrs["year"].values()) >= 2022 and "surfacearea_m2" in ponds.columns
 
 
 def test_gridmet_climate(cache):

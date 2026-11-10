@@ -84,25 +84,44 @@ def shape_filter(polygons: gpd.GeoDataFrame, min_width_m: float = 8.0, max_elong
     return polygons[keep]
 
 
-def _naip_years(aoi: AOI) -> list[int]:
-    """NAIP years available over the AOI."""
+def _naip_years(aoi: AOI) -> dict[str, list[int]]:
+    """NAIP years available over the AOI, by state (NAIP is flown state by state)."""
     import planetary_computer
     from pystac_client import Client
 
     catalog = Client.open(PLANETARY_COMPUTER, modifier=planetary_computer.sign_inplace)
-    items = catalog.search(collections=["naip"], bbox=aoi.to_crs(WGS84).bounds).items()
-    return sorted({int(i.properties["naip:year"]) for i in items})
+    years: dict[str, set] = {}
+    for item in catalog.search(collections=["naip"], bbox=aoi.to_crs(WGS84).bounds).items():
+        years.setdefault(item.properties["naip:state"], set()).add(int(item.properties["naip:year"]))
+    return {state: sorted(ys) for state, ys in sorted(years.items())}
 
 
-def pick_naip_items(items, year: int | None):
-    """(year, items) for the requested year, or the latest year available."""
-    years = sorted({int(i.properties["naip:year"]) for i in items})
-    if not years:
+def naip_plan(years_by_state: dict, year: int | None = None) -> dict[str, int]:
+    """{state: year} to mosaic: each state's latest year, or ``year`` for every state."""
+    if not years_by_state:
         raise ValueError("No NAIP imagery covers this area.")
-    chosen = years[-1] if year is None else int(year)
-    if chosen not in years:
-        raise ValueError(f"No NAIP imagery from {chosen} here; available years: {years}.")
-    return chosen, [i for i in items if int(i.properties["naip:year"]) == chosen]
+    if year is None:
+        return {state: ys[-1] for state, ys in years_by_state.items()}
+    missing = [state for state, ys in years_by_state.items() if int(year) not in ys]
+    if missing:
+        raise ValueError(f"No NAIP imagery from {year} for {missing}; available: {years_by_state}.")
+    return {state: int(year) for state in years_by_state}
+
+
+def previous_plan(years_by_state: dict, plan: dict) -> dict[str, int] | None:
+    """Each state's NAIP year before the one in ``plan``, or None if any state has none."""
+    earlier = {state: [y for y in years_by_state[state] if y < year] for state, year in plan.items()}
+    if not all(earlier.values()):
+        return None
+    return {state: ys[-1] for state, ys in earlier.items()}
+
+
+def pick_naip_items(items, plan: dict):
+    """The tiles whose (state, year) is in ``plan``."""
+    chosen = [i for i in items if plan.get(i.properties.get("naip:state")) == int(i.properties["naip:year"])]
+    if not chosen:
+        raise ValueError(f"No NAIP tiles for {plan}.")
+    return chosen
 
 
 def _target_grid(aoi: AOI, resolution: float):
@@ -115,8 +134,8 @@ def _target_grid(aoi: AOI, resolution: float):
     return Affine(resolution, 0.0, west, 0.0, -resolution, north), width, height
 
 
-def _load_naip(aoi: AOI, year: int | None, resolution: float, cache):
-    """Mosaic of the NAIP tiles over the AOI: (uint8 array (4, rows, cols), transform, crs, year)."""
+def _load_naip(aoi: AOI, plan: dict, resolution: float, cache):
+    """Mosaic of the NAIP tiles in ``plan`` over the AOI: (uint8 array (4, rows, cols), transform, crs, plan)."""
     import planetary_computer
     import rasterio
     import rasterio.warp
@@ -129,13 +148,14 @@ def _load_naip(aoi: AOI, year: int | None, resolution: float, cache):
 
     aoi = aoi.to_crs(WGS84)
     catalog = Client.open(PLANETARY_COMPUTER, modifier=planetary_computer.sign_inplace)
-    year, items = pick_naip_items(list(catalog.search(collections=["naip"], bbox=aoi.bounds).items()), year)
+    items = pick_naip_items(list(catalog.search(collections=["naip"], bbox=aoi.bounds).items()), plan)
     transform, width, height = _target_grid(aoi, resolution)
-    key = hashlib.sha1(f"{aoi.geometry.wkb_hex}{year}{resolution}".encode()).hexdigest()[:16]
-    path = cache_dir(cache) / f"naip_{year}_{resolution:g}m_{key}.tif"
+    label = "_".join(f"{state}{year}" for state, year in sorted(plan.items()))
+    key = hashlib.sha1(f"{aoi.geometry.wkb_hex}{label}{resolution}".encode()).hexdigest()[:16]
+    path = cache_dir(cache) / f"naip_{label}_{resolution:g}m_{key}.tif"
     if path.exists():
         with rasterio.open(path) as src:
-            return src.read(), src.transform, src.crs.to_string(), year
+            return src.read(), src.transform, src.crs.to_string(), plan
 
     mosaic = np.zeros((4, height, width), dtype="uint8")
     full = rasterio.windows.Window(0, 0, width, height)
@@ -160,7 +180,7 @@ def _load_naip(aoi: AOI, year: int | None, resolution: float, cache):
                    transform=transform, nodata=0, compress="deflate", tiled=True)
     with rasterio.open(path, "w", **profile) as dst:
         dst.write(mosaic)
-    return mosaic, transform, EQUAL_AREA, year
+    return mosaic, transform, EQUAL_AREA, plan
 
 
 def detect_ponds_naip(aoi, year: int | None = None, threshold: float = 0.5, min_area_m2: float = 100.0,
@@ -172,10 +192,12 @@ def detect_ponds_naip(aoi, year: int | None = None, threshold: float = 0.5, min_
     Parameters
     ----------
     year : int, optional
-        NAIP year; the latest over the AOI by default.
+        NAIP year for every state; by default each state's latest (NAIP is flown state by
+        state, so an AOI on a state line can mix years).
     confirm_year : "previous", int or None
         Year whose imagery must also show water for ponds under ``confirm_below_m2``;
-        "previous" is the NAIP year before ``year``; None skips the check.
+        "previous" is each state's NAIP year before the one used (skipped if a state has
+        none); None skips the check.
 
     Returns
     -------
@@ -186,14 +208,15 @@ def detect_ponds_naip(aoi, year: int | None = None, threshold: float = 0.5, min_
 
     aoi = as_aoi(aoi)
     years = _naip_years(aoi)
-    if not years:
-        raise ValueError("No NAIP imagery covers this area.")
-    year = years[-1] if year is None else int(year)
+    plan = naip_plan(years, year)
     if confirm_year == "previous":
-        earlier = [y for y in years if y < year]
-        confirm_year = earlier[-1] if earlier else None
+        confirm_plan = previous_plan(years, plan)
+    elif confirm_year is None:
+        confirm_plan = None
+    else:
+        confirm_plan = naip_plan(years, int(confirm_year))
 
-    img, transform, crs, year = _load_naip(aoi, year, resolution, cache)
+    img, transform, crs, plan = _load_naip(aoi, plan, resolution, cache)
     water = naip_water_mask(img, threshold)
     del img
     found = water_polygons(water, transform, crs, min_area_m2).to_crs(EQUAL_AREA)
@@ -203,8 +226,8 @@ def detect_ponds_naip(aoi, year: int | None = None, threshold: float = 0.5, min_
 
     dropped = 0
     small = found.index[found["surfacearea_m2"] < confirm_below_m2]
-    if confirm_year is not None and len(small):
-        before, before_transform, before_crs, _ = _load_naip(aoi, int(confirm_year), resolution, cache)
+    if confirm_plan is not None and len(small):
+        before, before_transform, before_crs, _ = _load_naip(aoi, confirm_plan, resolution, cache)
         water_before = naip_water_mask(before, threshold)
         del before
         zones = found.loc[small].to_crs(before_crs).buffer(3.0)
@@ -218,7 +241,7 @@ def detect_ponds_naip(aoi, year: int | None = None, threshold: float = 0.5, min_
         found = found.drop(index=unconfirmed).reset_index(drop=True)
 
     found["source"] = "naip"
-    found.attrs.update(year=year, confirm_year=confirm_year, unconfirmed_dropped=dropped, threshold=threshold,
+    found.attrs.update(year=plan, confirm_year=confirm_plan, unconfirmed_dropped=dropped, threshold=threshold,
                        min_area_m2=min_area_m2, min_width_m=min_width_m, max_elongation=max_elongation,
                        confirm_below_m2=confirm_below_m2, confirm_fraction=confirm_fraction, resolution=resolution)
     return found

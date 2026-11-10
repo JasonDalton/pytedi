@@ -42,13 +42,13 @@ def test_shape_filter_keeps_ponds_and_drops_shadow_strips():
 
 
 def fake_years_and_images(monkeypatch, images):
-    """images: {year: array}. Records the years loaded."""
+    """images: {year: array}, all in one state ("va"). Records the plans loaded."""
     loaded = []
-    monkeypatch.setattr(ponds, "_naip_years", lambda aoi: sorted(images))
+    monkeypatch.setattr(ponds, "_naip_years", lambda aoi: {"va": sorted(images)})
 
-    def fake_load(aoi, year, resolution, cache):
-        loaded.append((year, resolution))
-        return images[year], T, "EPSG:5070", year
+    def fake_load(aoi, plan, resolution, cache):
+        loaded.append((plan, resolution))
+        return images[plan["va"]], T, "EPSG:5070", plan
 
     monkeypatch.setattr(ponds, "_load_naip", fake_load)
     return loaded
@@ -58,10 +58,11 @@ def test_detect_ponds_naip_end_to_end(monkeypatch):
     img = synthetic_naip()
     loaded = fake_years_and_images(monkeypatch, {2021: img, 2023: img})
     found = ponds.detect_ponds_naip(GRID)
-    assert loaded == [(2023, 1.0), (2021, 1.0)]  # the latest year, checked against the one before
+    assert loaded == [({"va": 2023}, 1.0), ({"va": 2021}, 1.0)]  # the latest year, checked against the one before
     assert sorted(found["surfacearea_m2"].round()) == [400.0, 1120.0]
     assert (found["source"] == "naip").all() and found.crs.to_epsg() == 5070
-    assert found.attrs["year"] == 2023 and found.attrs["confirm_year"] == 2021 and found.attrs["threshold"] == 0.5
+    assert found.attrs["year"] == {"va": 2023} and found.attrs["confirm_year"] == {"va": 2021}
+    assert found.attrs["threshold"] == 0.5
 
 
 def test_small_ponds_must_also_be_water_in_the_previous_year(monkeypatch):
@@ -83,13 +84,23 @@ def test_only_one_naip_year_skips_the_check(monkeypatch):
     assert len(found) == 2 and found.attrs["confirm_year"] is None
 
 
-def test_latest_naip_year_is_picked():
-    class Item:
-        def __init__(self, year):
-            self.properties = {"naip:year": year}
+def test_latest_year_per_state_and_previous_year():
+    # NAIP is flown state by state: an AOI on a state line mixes years.
+    years = {"wv": [2018, 2020, 2022], "va": [2018, 2021, 2023]}
+    assert ponds.naip_plan(years) == {"wv": 2022, "va": 2023}
+    assert ponds.previous_plan(years, {"wv": 2022, "va": 2023}) == {"wv": 2020, "va": 2021}
+    assert ponds.naip_plan(years, 2018) == {"wv": 2018, "va": 2018}
+    with pytest.raises(ValueError, match="2022"):
+        ponds.naip_plan(years, 2022)  # Virginia has no 2022
+    assert ponds.previous_plan(years, {"wv": 2018, "va": 2018}) is None  # nothing earlier to check against
 
-    items = [Item(2018), Item(2023), Item(2021), Item(2023)]
-    assert ponds.pick_naip_items(items, None) == (2023, [items[1], items[3]])
-    assert ponds.pick_naip_items(items, 2018) == (2018, [items[0]])
-    with pytest.raises(ValueError, match="2019"):
-        ponds.pick_naip_items(items, 2019)
+
+def test_pick_items_by_state_and_year():
+    class Item:
+        def __init__(self, state, year):
+            self.properties = {"naip:state": state, "naip:year": year}
+
+    items = [Item("wv", 2022), Item("va", 2023), Item("va", 2021), Item("wv", 2020), Item("wv", 2022)]
+    assert ponds.pick_naip_items(items, {"wv": 2022, "va": 2023}) == [items[0], items[1], items[4]]
+    with pytest.raises(ValueError, match="No NAIP"):
+        ponds.pick_naip_items(items, {"md": 2023})

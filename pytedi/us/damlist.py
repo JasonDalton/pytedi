@@ -101,7 +101,8 @@ class DamListResult:
         area = c["surfacearea_m2"] if not c.empty else pd.Series(dtype=float)
         return {
             "aoi": self.aoi.name,
-            "aoi_km2": round(self.cat_area_km2, 2),
+            "aoi_km2": round(self.aoi.area_km2, 2),
+            "cat_area_km2": round(self.cat_area_km2, 2),
             "ponds": len(c),
             "by_source": c["source"].value_counts().sort_index().to_dict() if not c.empty else {},
             "surfacearea_m2": area.describe().round(1).to_dict() if not c.empty else {},

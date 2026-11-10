@@ -144,3 +144,8 @@ def test_catchment_area_can_include_area_upstream_of_the_aoi(fake_sources):
     assert r.to_model().cat_area_km2 == 5.0
     with pytest.raises(ValueError, match="smaller"):
         dl.build_damlist(GRID, cat_area_km2=GRID.area_km2 / 2)
+
+
+def test_summary_reports_aoi_and_catchment_areas(fake_sources):
+    s = dl.build_damlist(GRID, cat_area_km2=5.0).summary()
+    assert s["aoi_km2"] == pytest.approx(round(GRID.area_km2, 2)) and s["cat_area_km2"] == 5.0
